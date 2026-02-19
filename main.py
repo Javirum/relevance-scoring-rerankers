@@ -15,12 +15,15 @@ def main() -> None:
 
     args, filter = parse_filters(sys.argv[1:])
 
+    hyde = "--hyde" in args
+    args = [a for a in args if a != "--hyde"]
+
     query = " ".join(args) if args else input("Enter question: ").strip()
     if not query:
         print("No query provided.")
         return
 
-    result = ask(query, filter=filter)
+    result = ask(query, filter=filter, hyde=hyde)
     print(result["answer"])
 
 
