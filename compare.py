@@ -1,9 +1,10 @@
 """Side-by-side comparison of ranking methods.
 
-Runs three rankings for a given query:
+Runs four rankings for a given query:
   1. Baseline — pure cosine similarity (no reranking)
-  2. LLM rerank — GPT-4o-mini relevance scoring
-  3. Cross-encoder rerank — cross-encoder/ms-marco-MiniLM-L-6-v2
+  2. HyDE baseline — hypothetical document embeddings (no reranking)
+  3. LLM rerank — GPT-4o-mini relevance scoring
+  4. Cross-encoder rerank — cross-encoder/ms-marco-MiniLM-L-6-v2
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import sys
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from retrieve import parse_filters, retrieve
+from retrieve import generate_hypothetical_doc, parse_filters, retrieve
 from rerank_search import search as cross_encoder_search
 from vector_search import score_relevance, combined_score
 
@@ -25,6 +26,19 @@ def baseline_search(query: str, k: int = TOP_K, filter: dict | None = None) -> l
     results = retrieve(query, k=k, filter=filter)
     results.sort(key=lambda x: x[1], reverse=True)
     return [(doc, sim) for doc, sim in results]
+
+
+def hyde_search(query: str, k: int = TOP_K, filter: dict | None = None) -> tuple[list[tuple], str]: # type: ignore
+    """Return results using HyDE (Hypothetical Document Embeddings).
+
+    Returns (results, hypothetical_doc) so the generated passage can be logged.
+    """
+    client = OpenAI()
+    hypothetical_doc = generate_hypothetical_doc(client, query)
+    # Use the hypothetical doc as the search text directly (no hyde flag needed)
+    results = retrieve(hypothetical_doc, k=k, filter=filter)
+    results.sort(key=lambda x: x[1], reverse=True)
+    return [(doc, sim) for doc, sim in results], hypothetical_doc
 
 
 def llm_rerank_search(query: str, k: int = TOP_K, filter: dict | None = None) -> list[tuple]: # type: ignore
@@ -82,7 +96,22 @@ def main() -> None:
         print(f"  [{rank}] similarity={sim:.2f} | {did}")
         print(f"      {preview}...")
 
-    # 2. LLM rerank
+    # 2. HyDE baseline
+    print()
+    print("=" * 60)
+    print("HyDE BASELINE (hypothetical document embeddings)")
+    print("=" * 60)
+    hyde, hypothetical_doc = hyde_search(query, filter=filter)
+    print(f"  Hypothetical passage:\n  {hypothetical_doc}\n")
+    hyde_order = []
+    for rank, (doc, sim) in enumerate(hyde, 1):
+        did = doc_id(doc)
+        hyde_order.append(did)
+        preview = doc.page_content[:120].replace("\n", " ")
+        print(f"  [{rank}] similarity={sim:.2f} | {did}")
+        print(f"      {preview}...")
+
+    # 3. LLM rerank
     print()
     print("=" * 60)
     print("LLM RERANK (GPT-4o-mini)")
@@ -96,7 +125,7 @@ def main() -> None:
         print(f"  [{rank}] combined={score:.2f} | similarity={sim:.2f} | relevance={rel['score']}/5 | {did}")
         print(f"      {preview}...")
 
-    # 3. Cross-encoder rerank
+    # 4. Cross-encoder rerank
     print()
     print("=" * 60)
     print("CROSS-ENCODER RERANK (ms-marco-MiniLM-L-6-v2)")
@@ -115,20 +144,21 @@ def main() -> None:
     print("=" * 60)
     print("RANK COMPARISON")
     print("=" * 60)
-    print(f"  {'Doc':<40} {'Baseline':>8} {'LLM':>8} {'CE':>8}")
-    print(f"  {'-'*40} {'-'*8} {'-'*8} {'-'*8}")
+    print(f"  {'Doc':<40} {'Baseline':>8} {'HyDE':>8} {'LLM':>8} {'CE':>8}")
+    print(f"  {'-'*40} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
 
     all_ids = []
-    for did in baseline_order + llm_order + ce_order:
+    for did in baseline_order + hyde_order + llm_order + ce_order:
         if did not in all_ids:
             all_ids.append(did)
 
     for did in all_ids:
         b_rank = baseline_order.index(did) + 1 if did in baseline_order else "-"
+        h_rank = hyde_order.index(did) + 1 if did in hyde_order else "-"
         l_rank = llm_order.index(did) + 1 if did in llm_order else "-"
         c_rank = ce_order.index(did) + 1 if did in ce_order else "-"
         label = did[:40]
-        print(f"  {label:<40} {str(b_rank):>8} {str(l_rank):>8} {str(c_rank):>8}")
+        print(f"  {label:<40} {str(b_rank):>8} {str(h_rank):>8} {str(l_rank):>8} {str(c_rank):>8}")
 
 
 if __name__ == "__main__":
