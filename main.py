@@ -5,11 +5,9 @@ from __future__ import annotations
 import sys
 
 from dotenv import load_dotenv
-from langchain.chains import RetrievalQA
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
 
-from retrieve import PINECONE_INDEX, parse_filters
+from retrieve import parse_filters
+from rag import ask
 
 
 def main() -> None:
@@ -22,18 +20,8 @@ def main() -> None:
         print("No query provided.")
         return
 
-    vectorstore = PineconeVectorStore(
-        index_name=PINECONE_INDEX,
-        embedding=OpenAIEmbeddings(model="text-embedding-3-small"),
-    )
-    retriever = vectorstore.as_retriever(
-        search_kwargs={"k": 5, **({"filter": filter} if filter else {})},
-    )
-
-    chain = RetrievalQA.from_chain_type(llm=ChatOpenAI(model="gpt-4o-mini"), retriever=retriever)
-
-    result = chain.invoke(query)
-    print(result["result"])
+    result = ask(query, filter=filter)
+    print(result["answer"])
 
 
 if __name__ == "__main__":
